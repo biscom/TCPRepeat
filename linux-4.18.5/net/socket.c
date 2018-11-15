@@ -1820,6 +1820,19 @@ SYSCALL_DEFINE4(send, int, fd, void __user *, buff, size_t, len,
 	return __sys_sendto(fd, buff, len, flags, NULL, 0);
 }
 
+
+/*
+ *	Send repeated packets on a socket.
+ *	->just for show to conpile, only sends once
+ */
+
+SYSCALL_DEFINE5(send_repeat, int, fd, void __user *, buff, size_t, len,
+		unsigned int, flags, unsigned int, count)
+{
+	return __sys_sendto(fd, buff, len, flags, NULL, 0);
+}
+
+
 /*
  *	Receive a frame from the socket and optionally record the address of the
  *	sender. We verify the buffers are writable and if needed move the
