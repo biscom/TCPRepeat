@@ -1,0 +1,11 @@
+linux-4.18.5/*
+!linux-4.18.5/CREDITS
+!linux-4.18.5/README
+!linux-4.18.5/arch
+linux-4.18.5/arch/*
+!linux-4.18.5/arch/x86
+linux-4.18.5/arch/x86/*
+!linux-4.18.5/arch/x86/entry
+linux-4.18.5/arch/x86/entry/*
+!linux-4.18.5/arch/x86/entry/syscalls
+!linux-4.18.5/net
