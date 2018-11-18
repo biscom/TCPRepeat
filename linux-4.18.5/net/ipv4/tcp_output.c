@@ -415,6 +415,7 @@ static inline bool tcp_urg_mode(const struct tcp_sock *tp)
 #define OPTION_WSCALE		(1 << 3)
 #define OPTION_FAST_OPEN_COOKIE	(1 << 8)
 #define OPTION_SMC		(1 << 9)
+#define OPTION_TCP_REPEAT		(1 << 10)
 
 static void smc_options_write(__be32 *ptr, u16 *options)
 {
@@ -439,6 +440,7 @@ struct tcp_out_options {
 	u8 hash_size;		/* bytes in hash_location */
 	__u8 *hash_location;	/* temporary pointer, overloaded */
 	__u32 tsval, tsecr;	/* need to include OPTION_TS */
+	u8 tcp_repeat;			/* 8 bits for tcp_repeat */
 	struct tcp_fastopen_cookie *fastopen_cookie;	/* Fast open cookie */
 };
 
@@ -549,6 +551,15 @@ static void tcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 		ptr += (len + 3) >> 2;
 	}
 
+	if (unlikely(OPTION_TCP_REPEAT & options)) {
+		*ptr++ = htonl((((unsigned char) 253) << 24) |
+			       (((unsigned char) 7) <<  16) |
+			       0x5BF3);
+		*ptr++ = htonl(((0x94CF) << 16) |
+			       (opts->tcp_repeat  << 8) |
+			       (TCPOPT_NOP));
+	}
+
 	smc_options_write(ptr, &options);
 }
 
@@ -618,6 +629,11 @@ static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
 	 * going out.  */
 	opts->mss = tcp_advertise_mss(sk);
 	remaining -= TCPOLEN_MSS_ALIGNED;
+
+	// Advertise TCP_REPEAT, 8 bytes when alligned
+	opts->options |= OPTION_TCP_REPEAT;
+	opts->tcp_repeat = 0x04;	//000 001 00 (i, n, mode)
+	remaining -= 8;
 
 	if (likely(sock_net(sk)->ipv4.sysctl_tcp_timestamps && !*md5)) {
 		opts->options |= OPTION_TS;
@@ -715,6 +731,14 @@ static unsigned int tcp_synack_options(const struct sock *sk,
 	}
 
 	smc_set_option_cond(tcp_sk(sk), ireq, opts, &remaining);
+
+	printk("TCP_OUTPUT: seting up synack\n");
+	if (unlikely(ireq->repeat_ok)) {
+		printk("TCP_OUTPUT_REPEAT: set in synack\n");
+		opts->options |= OPTION_TCP_REPEAT;
+		opts->tcp_repeat = 0x07;	//000 001 11 (i, n, mode)
+		remaining -= 8;
+	}
 
 	return MAX_TCP_OPTION_SPACE - remaining;
 }

@@ -1822,14 +1822,49 @@ SYSCALL_DEFINE4(send, int, fd, void __user *, buff, size_t, len,
 
 
 /*
+ *	Send a datagram to a given address. We check the user space data area 
+ *	is readable before invoking the protocol.
+ */
+int __sys_send_repeat(int fd, void __user *buff, size_t len, unsigned int flags,
+		 size_t count)
+{
+	struct socket *sock;
+	int err;
+	struct msghdr msg;
+	struct iovec iov;
+	int fput_needed;
+
+	err = import_single_range(WRITE, buff, len, &iov, &msg.msg_iter);
+	if (unlikely(err))
+		return err;
+	sock = sockfd_lookup_light(fd, &err, &fput_needed);
+	if (!sock)
+		goto out;
+
+	msg.msg_name = NULL;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+	msg.msg_namelen = 0;
+
+	if (sock->file->f_flags & O_NONBLOCK)
+		flags |= MSG_DONTWAIT;
+	msg.msg_flags = flags;
+	err = sock_sendmsg(sock, &msg);
+
+	fput_light(sock->file, fput_needed);
+out:
+	return err;
+}
+
+/*
  *	Send repeated packets on a socket.
  *	->just for show to conpile, only sends once
  */
 
 SYSCALL_DEFINE5(send_repeat, int, fd, void __user *, buff, size_t, len,
-		unsigned int, flags, unsigned int, count)
+		unsigned int, flags, size_t, count)
 {
-	return __sys_sendto(fd, buff, len, flags, NULL, 0);
+	return __sys_send_repeat(fd, buff, len, flags, count);
 }
 
 

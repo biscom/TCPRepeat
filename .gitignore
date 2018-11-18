@@ -8,4 +8,8 @@ linux-4.18.5/arch/x86/*
 !linux-4.18.5/arch/x86/entry
 linux-4.18.5/arch/x86/entry/*
 !linux-4.18.5/arch/x86/entry/syscalls
+!linux-4.18.5/include
+linux-4.18.5/include/*
+!linux-4.18.5/include/linux
+!linux-4.18.5/include/net
 !linux-4.18.5/net

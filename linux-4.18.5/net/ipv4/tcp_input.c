@@ -3880,6 +3880,27 @@ void tcp_parse_options(const struct net *net,
 							  opsize);
 				break;
 
+			case 253:
+				/* TCP_REPEAT option shares code 253 using a
+				 * 4 byte magic number.
+				 */
+				if (opsize == 7 && get_unaligned_be32(ptr) == 0x5BF394CF) {
+					unsigned char vals = *(ptr + 4);
+					printk("TCP_INPUT_REPEAT_VALS: %x\n", vals);
+					if (th->syn && ((vals & 0x1C) == 0x04)) {	// SYN packet, n=1
+						printk("TCP_INPUT_REPEAT_ENABLED\n");
+						opt_rx->repeat_ok = 1;
+					} else if ((vals & 0x03) == 0) {	// Incomming repeat
+						opt_rx->repeat_used = 1;
+						opt_rx->repeat_i_in = ((vals & 0xE0) >> 5);
+						opt_rx->repeat_n_in = ((vals & 0x1C) >> 2);
+					} else if ((vals & 0x03) == 0x03) {	// Acking repeat
+						opt_rx->repeat_acked = 1;
+						opt_rx->repeat_i_acked = ((vals & 0xE0) >> 5);
+						opt_rx->repeat_n_acked = ((vals & 0x1C) >> 2);
+					} 
+				}
+				break;
 			}
 			ptr += opsize-2;
 			length -= opsize;
@@ -6284,6 +6305,7 @@ static void tcp_openreq_init(struct request_sock *req,
 #if IS_ENABLED(CONFIG_SMC)
 	ireq->smc_ok = rx_opt->smc_ok;
 #endif
+	ireq->repeat_ok = rx_opt->repeat_ok;
 }
 
 struct request_sock *inet_reqsk_alloc(const struct request_sock_ops *ops,
