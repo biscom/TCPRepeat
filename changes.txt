@@ -1,0 +1,42 @@
+tcp_output.c
+
+	line 418: added option flag
+	line 443: Added to TCP_OUT_Options struct
+	line 554: Added to TCP Options_Write
+	line 633: Added to TCP_Syn_Options
+	line 735: Added to TCP_SYN_ACk_OPTIONS
+	line 787: Added to TCP_Established_Options
+	line 1075: Working on TCP_Transmit_SKB
+
+tcp_input.c
+
+	line 3884: Added ability to parse to TCP_Parse_Options
+	line 6308: Used to check options in the system call (Look into more: inet_request_sock)
+	
+
+skbuff.h
+
+	line 695: expanded te control buffer from 48 to 49 for safety :D
+	line 
+
+socket.h
+
+	line 54: in struct message header, msg_flags was increased in size to make room for more flags
+
+socket.c
+	
+	line 1828: Added "THE SYSCALL"
+			line 1848-1852 is new, rest is a clone of tcp_
+
+	line 1862: Stored the resend count in the extra space of msg_flags (done this way because the structure gets 	transferred all the way from "THE SYSCALL" to sending the msg in tcp.c)
+
+	line 1282: needs to get moved into TCP_Output.c
+	
+TCP.c
+
+	line 1175: TCP_SENDMSG_LOCKED (VERY MANY EDITS) - Most involved in changing the sizes incorrectly.
+
+
+******SYSCALL was added to the SYSCALL_DEFINE_TBL
+	
+
