@@ -826,6 +826,11 @@ struct tcp_skb_cb {
 			void *data_end;
 		} bpf;
 	};
+	// Holds values for tcp_repeat
+	u8 tcp_repeat_used : 1,
+	   tcp_repeat_n : 3,
+	   tcp_repeat_i : 3,
+	   tcp_repeat_pad : 1;
 };
 
 #define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))

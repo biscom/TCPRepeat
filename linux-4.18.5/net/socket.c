@@ -1834,12 +1834,20 @@ int __sys_send_repeat(int fd, void __user *buff, size_t len, unsigned int flags,
 	struct iovec iov;
 	int fput_needed;
 
+	// Only up to 7 repetitions
+	if (count > 7)
+		return -EINVAL;
+
 	err = import_single_range(WRITE, buff, len, &iov, &msg.msg_iter);
 	if (unlikely(err))
 		return err;
 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
 	if (!sock)
-		goto out;
+		return err;
+
+	// Check it tcp_repeat is availible
+	if (sock->sk->sk_family != AF_INET || !((struct inet_sock *)(sock->sk))->is_icsk || !((struct tcp_sock *)(sock->sk))->rx_opt.repeat_ok)
+		return -EPERM;
 
 	msg.msg_name = NULL;
 	msg.msg_control = NULL;
@@ -1849,16 +1857,17 @@ int __sys_send_repeat(int fd, void __user *buff, size_t len, unsigned int flags,
 	if (sock->file->f_flags & O_NONBLOCK)
 		flags |= MSG_DONTWAIT;
 	msg.msg_flags = flags;
+	// Hide the repeat count in the enlarged flags field
+	// so we don't need a seperate callstack
+	msg.msg_flags |= (((u64)count) << 32);
 	err = sock_sendmsg(sock, &msg);
 
 	fput_light(sock->file, fput_needed);
-out:
 	return err;
 }
 
 /*
  *	Send repeated packets on a socket.
- *	->just for show to conpile, only sends once
  */
 
 SYSCALL_DEFINE5(send_repeat, int, fd, void __user *, buff, size_t, len,

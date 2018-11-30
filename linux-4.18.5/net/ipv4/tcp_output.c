@@ -732,7 +732,6 @@ static unsigned int tcp_synack_options(const struct sock *sk,
 
 	smc_set_option_cond(tcp_sk(sk), ireq, opts, &remaining);
 
-	printk("TCP_OUTPUT: seting up synack\n");
 	if (unlikely(ireq->repeat_ok)) {
 		printk("TCP_OUTPUT_REPEAT: set in synack\n");
 		opts->options |= OPTION_TCP_REPEAT;
@@ -783,6 +782,13 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 			      TCPOLEN_SACK_PERBLOCK);
 		size += TCPOLEN_SACK_BASE_ALIGNED +
 			opts->num_sack_blocks * TCPOLEN_SACK_PERBLOCK;
+	}
+
+	if (unlikely(skb != NULL && skb->tcp_repeat_used)) {
+		printk("TCP_OUTPUT_REPEAT: outbound packet\n");
+		opts->options |= OPTION_TCP_REPEAT;
+		opts->tcp_repeat = ((skb->tcp_repeat_i) << 5) | ((skb->tcp_repeat_n) << 2);	// (i, n, mode)
+		size += 8;
 	}
 
 	return size;
@@ -1065,6 +1071,12 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	struct tcphdr *th;
 	int err;
 
+	if (skb->len > 0 && 
+		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
+		printk("TCP_REPEAT_transmit: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
+		
+	}
+
 	BUG_ON(!skb || !tcp_skb_pcount(skb));
 	tp = tcp_sk(sk);
 
@@ -1082,7 +1094,33 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 
 		if (unlikely(!skb))
 			return -ENOBUFS;
+
+		// if (unlikely(skb->tcp_repeat_used)) {
+		// 	// refcount_inc(&skb->users);
+		// 	tcb = TCP_SKB_CB(skb);
+		// 	printk("TCP_REPEAT_transmit: %u, %u, %u\n", tcb->seq, tcb->end_seq, skb->len);
+// 			skb->tcp_repeat_i = 1;
+// 			err = 0;
+// 			while (skb->tcp_repeat_i && skb->tcp_repeat_i <= skb->tcp_repeat_n) {
+// 				tcb->end_seq = tcb->seq + skb->len;
+// 				err = __tcp_transmit_skb(sk, skb, 0, gfp_mask, rcv_nxt);
+// 				if (err < 0)
+// 					goto tcp_repeat_out;
+// 				tcb->seq += skb->len;
+// 				++skb->tcp_repeat_i;
+// 				// Only ACK once
+// 				tcb->tcp_flags &= ~TCPHDR_ACK;
+// 			}
+// tcp_repeat_out:
+// 			kfree_skb(skb);
+// 			return err;
+		// }
+		if (skb->len > 0 && 
+			unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1))
+			printk("TCP_REPEAT_transmit_after_clone?: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
 	}
+
+
 	skb->skb_mstamp = tp->tcp_mstamp;
 
 	inet = inet_sk(sk);

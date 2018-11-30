@@ -1270,7 +1270,8 @@ restart:
 		if (skb)
 			copy = size_goal - skb->len;
 
-		if (copy <= 0 || !tcp_skb_can_collapse_to(skb)) {
+		                                                  // Never try to collapse repeats
+		if (copy <= 0 || !tcp_skb_can_collapse_to(skb) || ((msg->msg_flags) >> 32)) {
 			bool first_skb;
 			int linear;
 
@@ -1291,6 +1292,16 @@ new_segment:
 						  first_skb);
 			if (!skb)
 				goto wait_for_memory;
+
+			// Set whether or not this will need to be repeated
+			if (unlikely((msg->msg_flags) >> 32)) {
+				printk("TCP_REPEAT_sendmsg\n");
+				skb->tcp_repeat_used = 1;
+				skb->tcp_repeat_n = ((msg->msg_flags) >> 32) & 0x7;
+				skb->tcp_repeat_i = 0;
+			} else {
+				skb->tcp_repeat_used = 0;
+			}
 
 			process_backlog = true;
 			skb->ip_summed = CHECKSUM_PARTIAL;
@@ -1369,8 +1380,14 @@ new_segment:
 		if (!copied)
 			TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_PSH;
 
-		tp->write_seq += copy;
-		TCP_SKB_CB(skb)->end_seq += copy;
+		// Pretend this one packet is the size of all repeats
+		if (unlikely((msg->msg_flags) >> 32)) {
+			TCP_SKB_CB(skb)->end_seq += copy * ((msg->msg_flags) >> 32);
+			tp->write_seq += copy * ((msg->msg_flags) >> 32);
+		} else {
+			TCP_SKB_CB(skb)->end_seq += copy;
+			tp->write_seq += copy;
+		}
 		tcp_skb_pcount_set(skb, 0);
 
 		copied += copy;
