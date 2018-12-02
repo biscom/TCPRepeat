@@ -1293,15 +1293,15 @@ new_segment:
 			if (!skb)
 				goto wait_for_memory;
 
-			// Set whether or not this will need to be repeated
-			if (unlikely((msg->msg_flags) >> 32)) {
-				printk("TCP_REPEAT_sendmsg\n");
-				skb->tcp_repeat_used = 1;
-				skb->tcp_repeat_n = ((msg->msg_flags) >> 32) & 0x7;
-				skb->tcp_repeat_i = 0;
-			} else {
-				skb->tcp_repeat_used = 0;
-			}
+			// // Set whether or not this will need to be repeated
+			// if (unlikely((msg->msg_flags) >> 32)) {
+			// 	printk("TCP_REPEAT_sendmsg\n");
+			// 	skb->tcp_repeat_used = 1;
+			// 	skb->tcp_repeat_n = ((msg->msg_flags) >> 32) & 0x7;
+			// 	skb->tcp_repeat_i = 0;
+			// } else {
+			// 	skb->tcp_repeat_used = 0;
+			// }
 
 			process_backlog = true;
 			skb->ip_summed = CHECKSUM_PARTIAL;

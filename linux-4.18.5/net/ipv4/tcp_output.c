@@ -784,10 +784,11 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 			opts->num_sack_blocks * TCPOLEN_SACK_PERBLOCK;
 	}
 
-	if (unlikely(skb != NULL && skb->tcp_repeat_used)) {
+	if (unlikely(skb != NULL && TCP_SKB_CB(skb)->tcp_repeat_used)) {
 		printk("TCP_OUTPUT_REPEAT: outbound packet\n");
 		opts->options |= OPTION_TCP_REPEAT;
-		opts->tcp_repeat = ((skb->tcp_repeat_i) << 5) | ((skb->tcp_repeat_n) << 2);	// (i, n, mode)
+		opts->tcp_repeat = ((TCP_SKB_CB(skb)->tcp_repeat_i) << 5) | 
+		                   ((TCP_SKB_CB(skb)->tcp_repeat_n) << 2);	// (i, n, mode)
 		size += 8;
 	}
 
@@ -1071,16 +1072,43 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	struct tcphdr *th;
 	int err;
 
-	if (skb->len > 0 && 
-		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
-		printk("TCP_REPEAT_transmit: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
-		
-	}
-
-	BUG_ON(!skb || !tcp_skb_pcount(skb));
 	tp = tcp_sk(sk);
 
-	if (clone_it) {
+	if (skb->len > 0 && 
+		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
+		char repeat_n = ((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len);
+		char repeat_i = 1;
+		printk("TCP_REPEAT_transmit: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
+		TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + skb->len;
+		oskb = skb;
+		tcp_skb_tsorted_save(oskb) {
+			while (repeat_i <= repeat_n) {
+				skb = skb_clone(oskb, gfp_mask);
+				if (unlikely(!skb)) {
+					err = -ENOBUFS;
+					break;
+				}
+				tcb = TCP_SKB_CB(skb);
+				tcb->tcp_repeat_used = 1;
+				tcb->tcp_repeat_i = repeat_i;
+				tcb->tcp_repeat_n = repeat_n;
+				tcb->seq += (repeat_i - 1) * skb->len;
+				tcb->end_seq = tcb->seq + skb->len;
+				tcb->tx.in_flight = tcb->end_seq - tp->snd_una;
+				printk("TCP_REPEAT_transmit_recurse\n");
+				err = __tcp_transmit_skb(sk, skb, -1, gfp_mask, rcv_nxt);
+				if (err)
+					break;
+				++repeat_i;
+			}
+		} tcp_skb_tsorted_restore(oskb);
+		return err;
+	}
+
+
+	BUG_ON(!skb || !tcp_skb_pcount(skb));
+
+	if (clone_it > 0) {
 		TCP_SKB_CB(skb)->tx.in_flight = TCP_SKB_CB(skb)->end_seq
 			- tp->snd_una;
 		oskb = skb;
@@ -1095,29 +1123,6 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 		if (unlikely(!skb))
 			return -ENOBUFS;
 
-		// if (unlikely(skb->tcp_repeat_used)) {
-		// 	// refcount_inc(&skb->users);
-		// 	tcb = TCP_SKB_CB(skb);
-		// 	printk("TCP_REPEAT_transmit: %u, %u, %u\n", tcb->seq, tcb->end_seq, skb->len);
-// 			skb->tcp_repeat_i = 1;
-// 			err = 0;
-// 			while (skb->tcp_repeat_i && skb->tcp_repeat_i <= skb->tcp_repeat_n) {
-// 				tcb->end_seq = tcb->seq + skb->len;
-// 				err = __tcp_transmit_skb(sk, skb, 0, gfp_mask, rcv_nxt);
-// 				if (err < 0)
-// 					goto tcp_repeat_out;
-// 				tcb->seq += skb->len;
-// 				++skb->tcp_repeat_i;
-// 				// Only ACK once
-// 				tcb->tcp_flags &= ~TCPHDR_ACK;
-// 			}
-// tcp_repeat_out:
-// 			kfree_skb(skb);
-// 			return err;
-		// }
-		if (skb->len > 0 && 
-			unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1))
-			printk("TCP_REPEAT_transmit_after_clone?: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
 	}
 
 
@@ -1126,6 +1131,11 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	inet = inet_sk(sk);
 	tcb = TCP_SKB_CB(skb);
 	memset(&opts, 0, sizeof(opts));
+
+
+	if (likely(clone_it >= 0)) {
+		tcb->tcp_repeat_used = 0;
+	}
 
 	if (unlikely(tcb->tcp_flags & TCPHDR_SYN))
 		tcp_options_size = tcp_syn_options(sk, skb, &opts, &md5);
