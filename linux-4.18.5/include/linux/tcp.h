@@ -155,6 +155,15 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 	return (struct tcp_request_sock *)req;
 }
 
+struct tcp_repeat_ack_progress{
+	u32 seq_start;
+	struct tcp_repeat_ack_progress* next;
+	u16 n : 7,
+		i: 7, 
+		last_ack : 1,
+		pad : 1;
+}
+
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
@@ -398,6 +407,12 @@ struct tcp_sock {
 	 */
 	struct request_sock *fastopen_rsk;
 	u32	*saved_syn;
+
+//TCP Repeat related information
+	struct tcp_repeat_ack_progress* repeat_out;
+	struct tcp_repeat_ack_progress* repeat_in;
+
+	struct tcp_repeat_ack_progress repeat_store [16];
 };
 
 enum tsq_enum {

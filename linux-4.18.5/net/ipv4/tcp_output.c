@@ -635,6 +635,11 @@ static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
 	opts->tcp_repeat = 0x04;	//000 001 00 (i, n, mode)
 	remaining -= 8;
 
+	//Zero out TCP Repeat Struct Client-Side
+	tp->repeat_out = NULL;
+	tp->repeat_in = NULL;
+	memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress));
+
 	if (likely(sock_net(sk)->ipv4.sysctl_tcp_timestamps && !*md5)) {
 		opts->options |= OPTION_TS;
 		opts->tsval = tcp_skb_timestamp(skb) + tp->tsoffset;

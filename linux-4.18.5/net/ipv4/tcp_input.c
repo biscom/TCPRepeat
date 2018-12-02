@@ -6064,6 +6064,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		 * so release it.
 		 */
 		if (req) {
+			tp->rx_opt.repeat_ok = req->repeat_ok;
 			inet_csk(sk)->icsk_retransmits = 0;
 			reqsk_fastopen_remove(sk, req, false);
 			/* Re-arm the timer because data may have been sent out.
@@ -6079,6 +6080,10 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			tcp_init_transfer(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB);
 			tp->copied_seq = tp->rcv_nxt;
 		}
+		//Zero out TCP Repeat Struct Server-Side
+		tp->repeat_out = NULL;
+		tp->repeat_in = NULL;
+		memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress));
 		smp_mb();
 		tcp_set_state(sk, TCP_ESTABLISHED);
 		sk->sk_state_change(sk);

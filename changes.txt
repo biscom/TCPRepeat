@@ -12,6 +12,7 @@ tcp_input.c
 
 	line 3884: Added ability to parse to TCP_Parse_Options
 	line 6308: Used to check options in the system call (Look into more: inet_request_sock)
+	line 6083: Zeroed out TCP Repeat struct on server side
 	
 
 skbuff.h
@@ -38,5 +39,7 @@ TCP.c
 
 
 ******SYSCALL was added to the SYSCALL_DEFINE_TBL
+
+ADDED TCP_REPEAT to TCP.h at Line 787 (Changed flag size to U_INT16_T) ** Removed for stupidity
 	
 
