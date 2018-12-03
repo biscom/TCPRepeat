@@ -6083,7 +6083,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		//Zero out TCP Repeat Struct Server-Side
 		tp->repeat_out = NULL;
 		tp->repeat_in = NULL;
-		memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress));
+		memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress)*16);
 		smp_mb();
 		tcp_set_state(sk, TCP_ESTABLISHED);
 		sk->sk_state_change(sk);

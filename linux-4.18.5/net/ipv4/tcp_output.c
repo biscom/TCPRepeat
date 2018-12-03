@@ -638,7 +638,7 @@ static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
 	//Zero out TCP Repeat Struct Client-Side
 	tp->repeat_out = NULL;
 	tp->repeat_in = NULL;
-	memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress));
+	memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress)*16);
 
 	if (likely(sock_net(sk)->ipv4.sysctl_tcp_timestamps && !*md5)) {
 		opts->options |= OPTION_TS;
@@ -1084,9 +1084,12 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 		char repeat_n = ((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len);
 		char repeat_i = 1;
 		printk("TCP_REPEAT_transmit: %u, %u, %u\n", TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
-		TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + skb->len;
+		//TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + skb->len;
 		oskb = skb;
 		tcp_skb_tsorted_save(oskb) {
+			if (tp->repeat_out ){
+
+			}
 			while (repeat_i <= repeat_n) {
 				skb = skb_clone(oskb, gfp_mask);
 				if (unlikely(!skb)) {
