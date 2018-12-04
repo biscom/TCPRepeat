@@ -105,12 +105,6 @@ struct tcp_options_received {
 	u16	user_mss;	/* mss requested by user in ioctl	*/
 	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
 	u8 repeat_ok : 1, /* TCP_REPEAT seen on syn */
-		// repeat_used : 1,
-		// repeat_i_in : 3,
-		// repeat_n_in : 3,
-		// repeat_acked : 1,
-		// repeat_i_acked : 3,
-		// repeat_n_acked : 3,
 		pad : 7 ;
 };
 
@@ -119,8 +113,6 @@ static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
 	rx_opt->tstamp_ok = rx_opt->sack_ok = 0;
 	rx_opt->wscale_ok = rx_opt->snd_wscale = 0;
 	rx_opt->repeat_ok = 0;
-	// rx_opt->repeat_used = 0;
-	// rx_opt->repeat_acked = 0;
 #if IS_ENABLED(CONFIG_SMC)
 	rx_opt->smc_ok = 0;
 #endif

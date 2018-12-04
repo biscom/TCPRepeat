@@ -1,0 +1,675 @@
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/arch/x86/entry/syscalls/syscall_64.tbl linux-4.18.5-dev/arch/x86/entry/syscalls/syscall_64.tbl
+*** linux-4.18.5-original/arch/x86/entry/syscalls/syscall_64.tbl	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/arch/x86/entry/syscalls/syscall_64.tbl	2018-12-04 16:08:44.961723000 -0500
+***************
+*** 344,349 ****
+--- 344,351 ----
+  333	common	io_pgetevents		__x64_sys_io_pgetevents
+  334	common	rseq			__x64_sys_rseq
+  
++ 340	common	send_repeat		__x64_sys_send_repeat
++ 
+  #
+  # x32-specific system call numbers start at 512 to avoid cache impact
+  # for native 64-bit operation. The __x32_compat_sys stubs are created
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/include/linux/skbuff.h linux-4.18.5-dev/include/linux/skbuff.h
+*** linux-4.18.5-original/include/linux/skbuff.h	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/include/linux/skbuff.h	2018-12-04 16:08:45.669801000 -0500
+***************
+*** 692,698 ****
+  	 * want to keep them across layers you have to do a skb_clone()
+  	 * first. This is owned by whoever has the skb queued ATM.
+  	 */
+! 	char			cb[48] __aligned(8);
+  
+  	union {
+  		struct {
+--- 692,698 ----
+  	 * want to keep them across layers you have to do a skb_clone()
+  	 * first. This is owned by whoever has the skb queued ATM.
+  	 */
+! 	char			cb[56] __aligned(8);
+  
+  	union {
+  		struct {
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/include/linux/socket.h linux-4.18.5-dev/include/linux/socket.h
+*** linux-4.18.5-original/include/linux/socket.h	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/include/linux/socket.h	2018-12-04 16:08:45.677802000 -0500
+***************
+*** 51,57 ****
+  	struct iov_iter	msg_iter;	/* data */
+  	void		*msg_control;	/* ancillary data */
+  	__kernel_size_t	msg_controllen;	/* ancillary data buffer length */
+! 	unsigned int	msg_flags;	/* flags on received message */
+  	struct kiocb	*msg_iocb;	/* ptr to iocb for async requests */
+  };
+   
+--- 51,57 ----
+  	struct iov_iter	msg_iter;	/* data */
+  	void		*msg_control;	/* ancillary data */
+  	__kernel_size_t	msg_controllen;	/* ancillary data buffer length */
+! 	u64		msg_flags;	/* flags on received message */
+  	struct kiocb	*msg_iocb;	/* ptr to iocb for async requests */
+  };
+   
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/include/linux/tcp.h linux-4.18.5-dev/include/linux/tcp.h
+*** linux-4.18.5-original/include/linux/tcp.h	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/include/linux/tcp.h	2018-12-04 16:10:47.595621000 -0500
+***************
+*** 104,115 ****
+--- 104,118 ----
+  	u8	num_sacks;	/* Number of SACK blocks		*/
+  	u16	user_mss;	/* mss requested by user in ioctl	*/
+  	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
++ 	u8 repeat_ok : 1, /* TCP_REPEAT seen on syn */
++ 		pad : 7 ;
+  };
+  
+  static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
+  {
+  	rx_opt->tstamp_ok = rx_opt->sack_ok = 0;
+  	rx_opt->wscale_ok = rx_opt->snd_wscale = 0;
++ 	rx_opt->repeat_ok = 0;
+  #if IS_ENABLED(CONFIG_SMC)
+  	rx_opt->smc_ok = 0;
+  #endif
+***************
+*** 144,149 ****
+--- 147,161 ----
+  	return (struct tcp_request_sock *)req;
+  }
+  
++ struct tcp_repeat_ack_progress{
++ 	u32 seq_start;
++ 	u32 seq_end;
++ 	u8 n : 3,
++ 		i: 3, 
++ 		last_ack : 1,
++ 		pad : 1;
++ };
++ 
+  struct tcp_sock {
+  	/* inet_connection_sock has to be the first member of tcp_sock */
+  	struct inet_connection_sock	inet_conn;
+***************
+*** 387,392 ****
+--- 399,410 ----
+  	 */
+  	struct request_sock *fastopen_rsk;
+  	u32	*saved_syn;
++ 
++ /* TCP Repeat related information */
++ 	struct tcp_repeat_ack_progress repeat_out;
++ 	struct tcp_repeat_ack_progress repeat_in;
++ 
++ 	struct sk_buff_head	sk_repeat_queue;
+  };
+  
+  enum tsq_enum {
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/include/net/inet_sock.h linux-4.18.5-dev/include/net/inet_sock.h
+*** linux-4.18.5-original/include/net/inet_sock.h	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/include/net/inet_sock.h	2018-12-04 16:08:45.829818000 -0500
+***************
+*** 102,107 ****
+--- 102,109 ----
+  		};
+  #endif
+  	};
++ 	u8		repeat_ok : 1,	// For tcp_repeat
++ 			padding : 7;
+  };
+  
+  static inline struct inet_request_sock *inet_rsk(const struct request_sock *sk)
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/include/net/tcp.h linux-4.18.5-dev/include/net/tcp.h
+*** linux-4.18.5-original/include/net/tcp.h	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/include/net/tcp.h	2018-12-04 16:08:45.885825000 -0500
+***************
+*** 826,831 ****
+--- 826,836 ----
+  			void *data_end;
+  		} bpf;
+  	};
++ 	// Holds values for tcp_repeat
++ 	u8 tcp_repeat_used : 1,
++ 	   tcp_repeat_n : 3,
++ 	   tcp_repeat_i : 3,
++ 	   tcp_repeat_pad : 1;
+  };
+  
+  #define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/net/ipv4/tcp.c linux-4.18.5-dev/net/ipv4/tcp.c
+*** linux-4.18.5-original/net/ipv4/tcp.c	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/net/ipv4/tcp.c	2018-12-04 16:12:04.530756000 -0500
+***************
+*** 1,3 ****
+--- 1,4 ----
++ 
+  /*
+   * INET		An implementation of the TCP/IP protocol suite for the LINUX
+   *		operating system.  INET is implemented using the  BSD Socket
+***************
+*** 1270,1276 ****
+  		if (skb)
+  			copy = size_goal - skb->len;
+  
+! 		if (copy <= 0 || !tcp_skb_can_collapse_to(skb)) {
+  			bool first_skb;
+  			int linear;
+  
+--- 1271,1278 ----
+  		if (skb)
+  			copy = size_goal - skb->len;
+  
+! 		                                                  // Never try to collapse repeats
+! 		if (copy <= 0 || !tcp_skb_can_collapse_to(skb) || ((msg->msg_flags) >> 32)) {
+  			bool first_skb;
+  			int linear;
+  
+***************
+*** 1369,1376 ****
+  		if (!copied)
+  			TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_PSH;
+  
+! 		tp->write_seq += copy;
+! 		TCP_SKB_CB(skb)->end_seq += copy;
+  		tcp_skb_pcount_set(skb, 0);
+  
+  		copied += copy;
+--- 1371,1384 ----
+  		if (!copied)
+  			TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_PSH;
+  
+! 		// Pretend this one packet is the size of all repeats
+! 		if (unlikely((msg->msg_flags) >> 32)) {
+! 			TCP_SKB_CB(skb)->end_seq += copy * ((msg->msg_flags) >> 32);
+! 			tp->write_seq += copy * ((msg->msg_flags) >> 32);
+! 		} else {
+! 			TCP_SKB_CB(skb)->end_seq += copy;
+! 			tp->write_seq += copy;
+! 		}
+  		tcp_skb_pcount_set(skb, 0);
+  
+  		copied += copy;
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/net/ipv4/tcp_input.c linux-4.18.5-dev/net/ipv4/tcp_input.c
+*** linux-4.18.5-original/net/ipv4/tcp_input.c	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/net/ipv4/tcp_input.c	2018-12-04 16:08:46.181860000 -0500
+***************
+*** 3772,3781 ****
+   * But, this can also be called on packets in the established flow when
+   * the fast version below fails.
+   */
+! void tcp_parse_options(const struct net *net,
+  		       const struct sk_buff *skb,
+  		       struct tcp_options_received *opt_rx, int estab,
+! 		       struct tcp_fastopen_cookie *foc)
+  {
+  	const unsigned char *ptr;
+  	const struct tcphdr *th = tcp_hdr(skb);
+--- 3772,3782 ----
+   * But, this can also be called on packets in the established flow when
+   * the fast version below fails.
+   */
+! void __tcp_parse_options(const struct net *net,
+  		       const struct sk_buff *skb,
+  		       struct tcp_options_received *opt_rx, int estab,
+! 		       struct tcp_fastopen_cookie *foc,
+! 		       struct tcp_sock *tp)
+  {
+  	const unsigned char *ptr;
+  	const struct tcphdr *th = tcp_hdr(skb);
+***************
+*** 3880,3891 ****
+--- 3881,3957 ----
+  							  opsize);
+  				break;
+  
++ 			case 253:
++ 				/* TCP_REPEAT option shares code 253 using a
++ 				 * 32 bit magic number.
++ 				 */
++ 				if (opsize == 7 && get_unaligned_be32(ptr) == 0x5BF394CF) {
++ 					unsigned char vals = *(ptr + 4);
++ 					if (th->syn && ((vals & 0x1C) == 0x04)) {	// SYN packet, n=1
++ 						printk("TCP_INPUT_REPEAT_ENABLED\n");
++ 						opt_rx->repeat_ok = 1;
++ 						opt_rx->sack_ok = 0;	// SACK and TCP_REPEAT are currently not compatible
++ 					} else {
++ 						struct tcp_skb_cb * tcb;
++ 						if (!tp) {
++ 							printk("TCP__REPEAT_parse_needs_socket\n");
++ 							break;
++ 						}
++ 						tcb = TCP_SKB_CB(skb);
++ 						tcb->tcp_repeat_used = 1;
++ 						tcb->tcp_repeat_i = ((vals & 0xE0) >> 5);
++ 						tcb->tcp_repeat_n = ((vals & 0x1C) >> 2);
++ 						if ((vals & 0x03) == 0) {	// Incomming repeat
++ 							if (((vals & 0xE0) >> 5) == 1) {
++ 								// First packet of a repeat
++ 								if (!(tp->repeat_in.last_ack)) {
++ 									printk("TCP__REPEAT_overlap_in\n");
++ 								}
++ 								tp->repeat_in.i = tcb->tcp_repeat_i;
++ 								tp->repeat_in.n = tcb->tcp_repeat_n;
++ 								tp->repeat_in.seq_start = tcb->seq;
++ 								tp->repeat_in.seq_end = tcb->end_seq + 
++ 										skb->len * (tp->repeat_in.n - 1);
++ 								tp->repeat_in.last_ack = 0;
++ 							} else {
++ 								if (tp->repeat_in.i + 1 == tcb->tcp_repeat_i
++ 									&& tp->repeat_in.n  == tcb->tcp_repeat_n) {
++ 									tp->repeat_in.i++;
++ 								} else {
++ 									printk("TCP__REPEAT_out_of_order_in\n");
++ 								}
++ 							}
++ 						} else if ((vals & 0x03) == 0x03) {	// Ack of my repeat
++ 							if (!(tp->repeat_out.last_ack)) {
++ 								if (tcb->tcp_repeat_n == tp->repeat_out.n) {
++ 									tp->repeat_out.i = tcb->tcp_repeat_i;
++ 									if (tp->repeat_out.i == tp->repeat_out.n)
++ 										tp->repeat_out.last_ack = 1;
++ 								} else {
++ 									printk("TCP__REPEAT_ack_n_mismatch\n");	
++ 								}
++ 							} else {
++ 								printk("TCP__REPEAT_ack_without_outbound?\n");
++ 							}
++ 						}
++ 					}
++ 				}
++ 				break;
+  			}
+  			ptr += opsize-2;
+  			length -= opsize;
+  		}
+  	}
+  }
++ // Added wrapper to pass tcp_sock for repeat parsing
++ void tcp_parse_options(const struct net *net,
++ 		       const struct sk_buff *skb,
++ 		       struct tcp_options_received *opt_rx, int estab,
++ 		       struct tcp_fastopen_cookie *foc)
++ {
++ 	__tcp_parse_options(net, skb, opt_rx, estab, foc, NULL);
++ }
++ 
+  EXPORT_SYMBOL(tcp_parse_options);
+  
+  static bool tcp_parse_aligned_timestamp(struct tcp_sock *tp, const struct tcphdr *th)
+***************
+*** 3926,3932 ****
+  			return true;
+  	}
+  
+! 	tcp_parse_options(net, skb, &tp->rx_opt, 1, NULL);
+  	if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr)
+  		tp->rx_opt.rcv_tsecr -= tp->tsoffset;
+  
+--- 3992,3998 ----
+  			return true;
+  	}
+  
+! 	__tcp_parse_options(net, skb, &tp->rx_opt, 1, NULL, tp);
+  	if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr)
+  		tp->rx_opt.rcv_tsecr -= tp->tsoffset;
+  
+***************
+*** 4601,4617 ****
+  static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb, int hdrlen,
+  		  bool *fragstolen)
+  {
+! 	int eaten;
+! 	struct sk_buff *tail = skb_peek_tail(&sk->sk_receive_queue);
+  
+! 	__skb_pull(skb, hdrlen);
+! 	eaten = (tail &&
+! 		 tcp_try_coalesce(sk, tail,
+! 				  skb, fragstolen)) ? 1 : 0;
+! 	tcp_rcv_nxt_update(tcp_sk(sk), TCP_SKB_CB(skb)->end_seq);
+! 	if (!eaten) {
+! 		__skb_queue_tail(&sk->sk_receive_queue, skb);
+! 		skb_set_owner_r(skb, sk);
+  	}
+  	return eaten;
+  }
+--- 4667,4696 ----
+  static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb, int hdrlen,
+  		  bool *fragstolen)
+  {
+! 	int eaten = 0;
+  
+! 	if (likely(tcp_sk(sk)->repeat_in.last_ack) || TCP_SKB_CB(skb)->seq >= tcp_sk(sk)->repeat_in.seq_end) {
+! 		struct sk_buff *tail = skb_peek_tail(&sk->sk_receive_queue);
+! 		__skb_pull(skb, hdrlen);
+! 		eaten = (tail &&
+! 			 tcp_try_coalesce(sk, tail,
+! 					  skb, fragstolen)) ? 1 : 0;
+! 		tcp_rcv_nxt_update(tcp_sk(sk), TCP_SKB_CB(skb)->end_seq);
+! 		if (!eaten) {
+! 			__skb_queue_tail(&sk->sk_receive_queue, skb);
+! 			skb_set_owner_r(skb, sk);
+! 		}
+! 	} else {
+! 		if (TCP_SKB_CB(skb)->tcp_repeat_used) {
+! 			__skb_queue_tail(&tcp_sk(sk)->sk_repeat_queue, skb);
+! 			skb_set_owner_r(skb, sk);
+! 			if (TCP_SKB_CB(skb)->tcp_repeat_i == TCP_SKB_CB(skb)->tcp_repeat_n) {
+! 				printk("TCP_REPEAT: queue done, moving\n");
+! 				skb_queue_splice_tail_init(&tcp_sk(sk)->sk_repeat_queue, &sk->sk_receive_queue);
+! 			}
+! 		} else {
+! 			printk("TCP_REPEAT: queue error\n");
+! 		}
+  	}
+  	return eaten;
+  }
+***************
+*** 6043,6048 ****
+--- 6122,6128 ----
+  		 * so release it.
+  		 */
+  		if (req) {
++ 			tp->rx_opt.repeat_ok = inet_rsk(req)->repeat_ok;
+  			inet_csk(sk)->icsk_retransmits = 0;
+  			reqsk_fastopen_remove(sk, req, false);
+  			/* Re-arm the timer because data may have been sent out.
+***************
+*** 6058,6063 ****
+--- 6138,6148 ----
+  			tcp_init_transfer(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB);
+  			tp->copied_seq = tp->rcv_nxt;
+  		}
++ 		//Zero out TCP Repeat Struct Server-Side
++ 		tp->repeat_out.last_ack = 1;
++ 		tp->repeat_in.last_ack = 1;
++ 		skb_queue_head_init(&tp->sk_repeat_queue);
++ 
+  		smp_mb();
+  		tcp_set_state(sk, TCP_ESTABLISHED);
+  		sk->sk_state_change(sk);
+***************
+*** 6284,6289 ****
+--- 6369,6375 ----
+  #if IS_ENABLED(CONFIG_SMC)
+  	ireq->smc_ok = rx_opt->smc_ok;
+  #endif
++ 	ireq->repeat_ok = rx_opt->repeat_ok;
+  }
+  
+  struct request_sock *inet_reqsk_alloc(const struct request_sock_ops *ops,
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/net/ipv4/tcp_output.c linux-4.18.5-dev/net/ipv4/tcp_output.c
+*** linux-4.18.5-original/net/ipv4/tcp_output.c	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/net/ipv4/tcp_output.c	2018-12-04 16:08:46.189861000 -0500
+***************
+*** 415,420 ****
+--- 415,422 ----
+  #define OPTION_WSCALE		(1 << 3)
+  #define OPTION_FAST_OPEN_COOKIE	(1 << 8)
+  #define OPTION_SMC		(1 << 9)
++ #define OPTION_TCP_REPEAT		(1 << 10)
++ #define OPTION_TCP_REPEAT_ACK	(1 << 11)
+  
+  static void smc_options_write(__be32 *ptr, u16 *options)
+  {
+***************
+*** 439,444 ****
+--- 441,448 ----
+  	u8 hash_size;		/* bytes in hash_location */
+  	__u8 *hash_location;	/* temporary pointer, overloaded */
+  	__u32 tsval, tsecr;	/* need to include OPTION_TS */
++ 	u8 tcp_repeat;			/* 8 bits for tcp_repeat */
++ 	u8 tcp_repeat_ack;			/* 8 bits for tcp_repeat */
+  	struct tcp_fastopen_cookie *fastopen_cookie;	/* Fast open cookie */
+  };
+  
+***************
+*** 549,554 ****
+--- 553,576 ----
+  		ptr += (len + 3) >> 2;
+  	}
+  
++ 	if (unlikely(OPTION_TCP_REPEAT & options)) {
++ 		*ptr++ = htonl((((unsigned char) 253) << 24) |
++ 			       (((unsigned char) 7) <<  16) |
++ 			       0x5BF3);
++ 		*ptr++ = htonl(((0x94CF) << 16) |
++ 			       (opts->tcp_repeat  << 8) |
++ 			       (TCPOPT_NOP));
++ 	}
++ 
++ 	if (unlikely(OPTION_TCP_REPEAT_ACK & options)) {
++ 		*ptr++ = htonl((((unsigned char) 253) << 24) |
++ 			       (((unsigned char) 7) <<  16) |
++ 			       0x5BF3);
++ 		*ptr++ = htonl(((0x94CF) << 16) |
++ 			       (opts->tcp_repeat_ack  << 8) |
++ 			       (TCPOPT_NOP));
++ 	}
++ 
+  	smc_options_write(ptr, &options);
+  }
+  
+***************
+*** 619,624 ****
+--- 641,656 ----
+  	opts->mss = tcp_advertise_mss(sk);
+  	remaining -= TCPOLEN_MSS_ALIGNED;
+  
++ 	// Advertise TCP_REPEAT, 8 bytes when alligned
++ 	opts->options |= OPTION_TCP_REPEAT;
++ 	opts->tcp_repeat = 0x04;	//000 001 00 (i, n, mode)
++ 	remaining -= 8;
++ 
++ 	//Zero out TCP Repeat Struct Client-Side
++ 	tp->repeat_out.last_ack = 1;
++ 	tp->repeat_in.last_ack = 1;
++ 	skb_queue_head_init(&tp->sk_repeat_queue);
++ 
+  	if (likely(sock_net(sk)->ipv4.sysctl_tcp_timestamps && !*md5)) {
+  		opts->options |= OPTION_TS;
+  		opts->tsval = tcp_skb_timestamp(skb) + tp->tsoffset;
+***************
+*** 716,721 ****
+--- 748,759 ----
+  
+  	smc_set_option_cond(tcp_sk(sk), ireq, opts, &remaining);
+  
++ 	if (unlikely(ireq->repeat_ok)) {
++ 		opts->options |= OPTION_TCP_REPEAT;
++ 		opts->tcp_repeat = 0x07;	//000 001 11 (i, n, mode)
++ 		remaining -= 8;
++ 	}
++ 
+  	return MAX_TCP_OPTION_SPACE - remaining;
+  }
+  
+***************
+*** 761,766 ****
+--- 799,820 ----
+  			opts->num_sack_blocks * TCPOLEN_SACK_PERBLOCK;
+  	}
+  
++ 	if (unlikely(skb != NULL && TCP_SKB_CB(skb)->tcp_repeat_used)) {
++ 		opts->options |= OPTION_TCP_REPEAT;
++ 		opts->tcp_repeat = ((TCP_SKB_CB(skb)->tcp_repeat_i) << 5) | 
++ 		                   ((TCP_SKB_CB(skb)->tcp_repeat_n) << 2);	// (i, n, mode)
++ 		size += 8;
++ 	}
++ 
++ 	if (unlikely(!(tp->repeat_in.last_ack))) {
++ 		if (tp->repeat_in.i == tp->repeat_in.n)
++ 			tp->repeat_in.last_ack = 1;
++ 		opts->options |= OPTION_TCP_REPEAT_ACK;
++ 		opts->tcp_repeat_ack = ((tp->repeat_in.i) << 5) | 
++ 		                   ((tp->repeat_in.n) << 2) | 0x3;	// (i, n, mode)
++ 		size += 8;
++ 	}
++ 
+  	return size;
+  }
+  
+***************
+*** 1041,1050 ****
+  	struct tcphdr *th;
+  	int err;
+  
+- 	BUG_ON(!skb || !tcp_skb_pcount(skb));
+  	tp = tcp_sk(sk);
+  
+! 	if (clone_it) {
+  		TCP_SKB_CB(skb)->tx.in_flight = TCP_SKB_CB(skb)->end_seq
+  			- tp->snd_una;
+  		oskb = skb;
+--- 1095,1152 ----
+  	struct tcphdr *th;
+  	int err;
+  
+  	tp = tcp_sk(sk);
+  
+! 	if (skb->len > 0 && 
+! 		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
+! 		// This packet is pretending to be at least twice as large as it truely is,
+! 		// so it is a reapeat packet (hopefully, or some else screwed up)
+! 		u8 repeat_i;
+! 		printk("TCP_REPEAT_transmit: seq: %u-%u, len: %u\n", 
+! 			TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
+! 
+! 		// Check if this is a new transmission
+! 		if (!(tp->repeat_out.seq_start == TCP_SKB_CB(skb)->seq)) {
+! 			// If the last repeat hasn't finished being acked, 
+! 			//  then we can't record info about this one
+! 			if (!(tp->repeat_out.last_ack))
+! 				return -ENOBUFS;
+! 			tp->repeat_out.seq_start = TCP_SKB_CB(skb)->seq;
+! 			tp->repeat_out.seq_end = TCP_SKB_CB(skb)->end_seq;
+! 			tp->repeat_out.n = (TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len;
+! 			tp->repeat_out.i = 0;
+! 			tp->repeat_out.last_ack = 0;
+! 		}
+! 
+! 		repeat_i = tp->repeat_out.i;
+! 		oskb = skb;
+! 		tcp_skb_tsorted_save(oskb) {
+! 			while (repeat_i < tp->repeat_out.n) {
+! 				++repeat_i;
+! 				skb = skb_clone(oskb, gfp_mask);
+! 				if (unlikely(!skb)) {
+! 					err = -ENOBUFS;
+! 					break;
+! 				}
+! 				tcb = TCP_SKB_CB(skb);
+! 				tcb->tcp_repeat_used = 1;
+! 				tcb->tcp_repeat_i = repeat_i;
+! 				tcb->tcp_repeat_n = tp->repeat_out.n;
+! 				tcb->seq += (repeat_i - 1) * skb->len;
+! 				tcb->end_seq = tcb->seq + skb->len;
+! 				tcb->tx.in_flight = tcb->end_seq - tp->snd_una;
+! 				err = __tcp_transmit_skb(sk, skb, -1, gfp_mask, rcv_nxt);
+! 				if (err)
+! 					break;
+! 			}
+! 		} tcp_skb_tsorted_restore(oskb);
+! 		return err;
+! 	}
+! 
+! 
+! 	BUG_ON(!skb || !tcp_skb_pcount(skb));
+! 
+! 	if (clone_it > 0) {
+  		TCP_SKB_CB(skb)->tx.in_flight = TCP_SKB_CB(skb)->end_seq
+  			- tp->snd_una;
+  		oskb = skb;
+***************
+*** 1058,1070 ****
+--- 1160,1180 ----
+  
+  		if (unlikely(!skb))
+  			return -ENOBUFS;
++ 
+  	}
++ 
++ 
+  	skb->skb_mstamp = tp->tcp_mstamp;
+  
+  	inet = inet_sk(sk);
+  	tcb = TCP_SKB_CB(skb);
+  	memset(&opts, 0, sizeof(opts));
+  
++ 
++ 	if (likely(clone_it >= 0)) {
++ 		tcb->tcp_repeat_used = 0;
++ 	}
++ 
+  	if (unlikely(tcb->tcp_flags & TCPHDR_SYN))
+  		tcp_options_size = tcp_syn_options(sk, skb, &opts, &md5);
+  	else
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/net/socket.c linux-4.18.5-dev/net/socket.c
+*** linux-4.18.5-original/net/socket.c	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/net/socket.c	2018-12-04 16:08:46.625917000 -0500
+***************
+*** 1820,1825 ****
+--- 1820,1882 ----
+  	return __sys_sendto(fd, buff, len, flags, NULL, 0);
+  }
+  
++ 
++ /*
++  *	Send a datagram to a given address. We check the user space data area 
++  *	is readable before invoking the protocol.
++  */
++ int __sys_send_repeat(int fd, void __user *buff, size_t len, unsigned int flags,
++ 		 size_t count)
++ {
++ 	struct socket *sock;
++ 	int err;
++ 	struct msghdr msg;
++ 	struct iovec iov;
++ 	int fput_needed;
++ 
++ 	// Only up to 7 repetitions
++ 	if (count > 7)
++ 		return -EINVAL;
++ 
++ 	err = import_single_range(WRITE, buff, len, &iov, &msg.msg_iter);
++ 	if (unlikely(err))
++ 		return err;
++ 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
++ 	if (!sock)
++ 		return err;
++ 
++ 	// Check it tcp_repeat is availible
++ 	if (sock->sk->sk_family != AF_INET || !((struct inet_sock *)(sock->sk))->is_icsk || !((struct tcp_sock *)(sock->sk))->rx_opt.repeat_ok)
++ 		return -EPERM;
++ 
++ 	msg.msg_name = NULL;
++ 	msg.msg_control = NULL;
++ 	msg.msg_controllen = 0;
++ 	msg.msg_namelen = 0;
++ 
++ 	if (sock->file->f_flags & O_NONBLOCK)
++ 		flags |= MSG_DONTWAIT;
++ 	msg.msg_flags = flags;
++ 	// Hide the repeat count in the enlarged flags field
++ 	// so we don't need a seperate callstack
++ 	msg.msg_flags |= (((u64)count) << 32);
++ 	err = sock_sendmsg(sock, &msg);
++ 
++ 	fput_light(sock->file, fput_needed);
++ 	return err;
++ }
++ 
++ /*
++  *	Send repeated packets on a socket.
++  */
++ 
++ SYSCALL_DEFINE5(send_repeat, int, fd, void __user *, buff, size_t, len,
++ 		unsigned int, flags, size_t, count)
++ {
++ 	return __sys_send_repeat(fd, buff, len, flags, count);
++ }
++ 
++ 
+  /*
+   *	Receive a frame from the socket and optionally record the address of the
+   *	sender. We verify the buffers are writable and if needed move the
