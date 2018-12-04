@@ -3892,23 +3892,30 @@ void __tcp_parse_options(const struct net *net,
 						opt_rx->repeat_ok = 1;
 						opt_rx->sack_ok = 0;	// SACK and TCP_REPEAT are currently not compatible
 					} else {
+						struct tcp_skb_cb * tcb;
 						if (!tp) {
 							printk("TCP__REPEAT_parse_needs_socket\n");
 							break;
 						}
+						tcb = TCP_SKB_CB(skb);
+						tcb->tcp_repeat_used = 1;
+						tcb->tcp_repeat_i = ((vals & 0xE0) >> 5);
+						tcb->tcp_repeat_n = ((vals & 0x1C) >> 2);
 						if ((vals & 0x03) == 0) {	// Incomming repeat
 							if (((vals & 0xE0) >> 5) == 1) {
 								// First packet of a repeat
 								if (!(tp->repeat_in.last_ack)) {
 									printk("TCP__REPEAT_overlap_in\n");
 								}
-								tp->repeat_in.i = ((vals & 0xE0) >> 5);
-								tp->repeat_in.n = ((vals & 0x1C) >> 2);
-								tp->repeat_in.seq_start = TCP_SKB_CB(skb)->seq;
-								tp->repeat_in.seq_end = TCP_SKB_CB(skb)->end_seq;
+								tp->repeat_in.i = tcb->tcp_repeat_i;
+								tp->repeat_in.n = tcb->tcp_repeat_n;
+								tp->repeat_in.seq_start = tcb->seq;
+								tp->repeat_in.seq_end = tcb->end_seq + 
+										skb->len * (tp->repeat_in.n - 1);
 								tp->repeat_in.last_ack = 0;
 							} else {
-								if (tp->repeat_in.i + 1 == ((vals & 0xE0) >> 5)) {
+								if (tp->repeat_in.i + 1 == tcb->tcp_repeat_i
+									&& tp->repeat_in.n  == tcb->tcp_repeat_n) {
 									tp->repeat_in.i++;
 								} else {
 									printk("TCP__REPEAT_out_of_order_in\n");
@@ -3916,8 +3923,8 @@ void __tcp_parse_options(const struct net *net,
 							}
 						} else if ((vals & 0x03) == 0x03) {	// Ack of my repeat
 							if (!(tp->repeat_out.last_ack)) {
-								if (((vals & 0x1C) >> 2) == tp->repeat_out.n) {
-									tp->repeat_out.i = ((vals & 0xE0) >> 5);
+								if (tcb->tcp_repeat_n == tp->repeat_out.n) {
+									tp->repeat_out.i = tcb->tcp_repeat_i;
 									if (tp->repeat_out.i == tp->repeat_out.n)
 										tp->repeat_out.last_ack = 1;
 								} else {
@@ -3936,6 +3943,7 @@ void __tcp_parse_options(const struct net *net,
 		}
 	}
 }
+// Added wrapper to pass tcp_sock for repeat parsing
 void tcp_parse_options(const struct net *net,
 		       const struct sk_buff *skb,
 		       struct tcp_options_received *opt_rx, int estab,
@@ -4659,17 +4667,29 @@ end:
 static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb, int hdrlen,
 		  bool *fragstolen)
 {
-	int eaten;
-	struct sk_buff *tail = skb_peek_tail(&sk->sk_receive_queue);
+	int eaten = 0;
 
-	__skb_pull(skb, hdrlen);
-	eaten = (tail &&
-		 tcp_try_coalesce(sk, tail,
-				  skb, fragstolen)) ? 1 : 0;
-	tcp_rcv_nxt_update(tcp_sk(sk), TCP_SKB_CB(skb)->end_seq);
-	if (!eaten) {
-		__skb_queue_tail(&sk->sk_receive_queue, skb);
-		skb_set_owner_r(skb, sk);
+	if (likely(tcp_sk(sk)->repeat_in.last_ack) || TCP_SKB_CB(skb)->seq >= tcp_sk(sk)->repeat_in.seq_end) {
+		struct sk_buff *tail = skb_peek_tail(&sk->sk_receive_queue);
+		__skb_pull(skb, hdrlen);
+		eaten = (tail &&
+			 tcp_try_coalesce(sk, tail,
+					  skb, fragstolen)) ? 1 : 0;
+		tcp_rcv_nxt_update(tcp_sk(sk), TCP_SKB_CB(skb)->end_seq);
+		if (!eaten) {
+			__skb_queue_tail(&sk->sk_receive_queue, skb);
+			skb_set_owner_r(skb, sk);
+		}
+	} else {
+		if (TCP_SKB_CB(skb)->tcp_repeat_used) {
+			__skb_queue_tail(&tcp_sk(sk)->sk_repeat_queue, skb);
+			if (TCP_SKB_CB(skb)->tcp_repeat_i == TCP_SKB_CB(skb)->tcp_repeat_n) {
+				printk("TCP_REPEAT: queue done, moving\n");
+				skb_queue_splice_tail_init(&tcp_sk(sk)->sk_repeat_queue, &sk->sk_receive_queue);
+			}
+		} else {
+			printk("TCP_REPEAT: queue error\n");
+		}
 	}
 	return eaten;
 }
@@ -6120,6 +6140,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		//Zero out TCP Repeat Struct Server-Side
 		tp->repeat_out.last_ack = 1;
 		tp->repeat_in.last_ack = 1;
+		skb_queue_head_init(&tp->sk_repeat_queue);
 
 		smp_mb();
 		tcp_set_state(sk, TCP_ESTABLISHED);

@@ -408,11 +408,11 @@ struct tcp_sock {
 	struct request_sock *fastopen_rsk;
 	u32	*saved_syn;
 
-//TCP Repeat related information
+/* TCP Repeat related information */
 	struct tcp_repeat_ack_progress repeat_out;
 	struct tcp_repeat_ack_progress repeat_in;
 
-	// struct tcp_repeat_ack_progress repeat_store[TCP_REPEAT_STORE_COUNT];
+	struct sk_buff_head	sk_repeat_queue;
 };
 
 enum tsq_enum {
