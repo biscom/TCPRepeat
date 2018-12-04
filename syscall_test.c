@@ -37,10 +37,10 @@ int main(int argc, char ** argv) {
 
 	sleep(5);
 	int i;
-	i = send(tcp_sock, "test\0", 5, 0);
+	i = send(tcp_sock, "test\n\0", 5, 0);
 	printf("%d\n", i);
 	sleep(5);
-	i = syscall(340, tcp_sock, "test\0", 5, 0, 3);
+	i = syscall(340, tcp_sock, "test\n\0", 6, 0, 5);
 	printf("%d\n", i);
 	sleep(5);
 }

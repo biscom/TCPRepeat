@@ -3887,47 +3887,58 @@ void __tcp_parse_options(const struct net *net,
 				 */
 				if (opsize == 7 && get_unaligned_be32(ptr) == 0x5BF394CF) {
 					unsigned char vals = *(ptr + 4);
+					// struct tcp_repeat_ack_progress *packet_progress;
+					struct tcp_repeat_ack_progress **progress_pointer;
+					printk("TCP_INPUT_REPEAT_VALS: %x\n", vals);
 					if (th->syn && ((vals & 0x1C) == 0x04)) {	// SYN packet, n=1
 						printk("TCP_INPUT_REPEAT_ENABLED\n");
 						opt_rx->repeat_ok = 1;
 						opt_rx->sack_ok = 0;	// SACK and TCP_REPEAT are currently not compatible
-					} else {
+					} else if ((vals & 0x03) == 0) {	// Incomming repeat
+						if (((vals & 0xE0) >> 5) == 1) {
+							// First packet of a repeat, make room
+							unsigned int i=0;
+							progress_pointer = &(tp->tcp_repeat_in);
+							while (*progress_pointer) {
+								progress_pointer = &((*packet_progress)->next);
+							}
+							while (!(tp->repeat_store[i].seq_start) && (i < TCP_REPEAT_STORE_COUNT)) {
+								++i;
+							}
+							if (i == TCP_REPEAT_STORE_COUNT) {
+								break;
+							}
+						} else {
+
+						}
+						// opt_rx->repeat_used = 1;
+						// opt_rx->repeat_i_in = ((vals & 0xE0) >> 5);
+						// opt_rx->repeat_n_in = ((vals & 0x1C) >> 2);
+					} else if ((vals & 0x03) == 0x03) {	// Ack of my repeat
+						u32 repeat_start = TCP_SKB_CB(skb)->seq - ((((vals & 0xE0) >> 5) - 1) * skb->len);
 						if (!tp) {
 							printk("TCP__REPEAT_parse_needs_socket\n");
 							break;
 						}
-						if ((vals & 0x03) == 0) {	// Incomming repeat
-							if (((vals & 0xE0) >> 5) == 1) {
-								// First packet of a repeat
-								if (!(tp->repeat_in.last_ack)) {
-									printk("TCP__REPEAT_overlap_in\n");
-								}
-								tp->repeat_in.i = ((vals & 0xE0) >> 5);
-								tp->repeat_in.n = ((vals & 0x1C) >> 2);
-								tp->repeat_in.seq_start = TCP_SKB_CB(skb)->seq;
-								tp->repeat_in.seq_end = TCP_SKB_CB(skb)->end_seq;
-								tp->repeat_in.last_ack = 0;
-							} else {
-								if (tp->repeat_in.i + 1 == ((vals & 0xE0) >> 5)) {
-									tp->repeat_in.i++;
-								} else {
-									printk("TCP__REPEAT_out_of_order_in\n");
-								}
-							}
-						} else if ((vals & 0x03) == 0x03) {	// Ack of my repeat
-							if (!(tp->repeat_out.last_ack)) {
-								if (((vals & 0x1C) >> 2) == tp->repeat_out.n) {
-									tp->repeat_out.i = ((vals & 0xE0) >> 5);
-									if (tp->repeat_out.i == tp->repeat_out.n)
-										tp->repeat_out.last_ack = 1;
-								} else {
-									printk("TCP__REPEAT_ack_n_mismatch\n");	
-								}
-							} else {
-								printk("TCP__REPEAT_ack_without_outbound?\n");
-							}
+						progress_pointer = &(tp->tcp_repeat_out);
+						while (*progress_pointer && (*progress_pointer)->seq_start != repeat_start) {`
+							progress_pointer = &((*packet_progress)->next);	
 						}
-					}
+						if (*packet_progress) {
+							if (((vals & 0xE0) >> 5) > (*packet_progress)->i) {
+								if (((vals & 0xE0) >> 5) == (*packet_progress)->n) {
+									printk("TCP__REPEAT_final_ack_received\n");
+									u32 *seq_overwrite = &((*packet_progress)->seq_start);
+									*packet_progress = (*packet_progress)->next;
+									*seq_overwrite = 0;
+								} else {
+									(*packet_progress)->i = ((vals & 0xE0) >> 5);
+								}
+							}
+						} else {
+							printk("TCP__REPEAT_ack_without_outbound?\n");
+						}
+					} 
 				}
 				break;
 			}
@@ -6101,7 +6112,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		 * so release it.
 		 */
 		if (req) {
-			tp->rx_opt.repeat_ok = inet_rsk(req)->repeat_ok;
+			tp->rx_opt.repeat_ok = req->repeat_ok;
 			inet_csk(sk)->icsk_retransmits = 0;
 			reqsk_fastopen_remove(sk, req, false);
 			/* Re-arm the timer because data may have been sent out.
@@ -6118,9 +6129,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			tp->copied_seq = tp->rcv_nxt;
 		}
 		//Zero out TCP Repeat Struct Server-Side
-		tp->repeat_out.last_ack = 1;
-		tp->repeat_in.last_ack = 1;
-
+		tp->repeat_out = NULL;
+		tp->repeat_in = NULL;
+		memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress)*TCP_REPEAT_STORE_COUNT);
 		smp_mb();
 		tcp_set_state(sk, TCP_ESTABLISHED);
 		sk->sk_state_change(sk);

@@ -416,7 +416,6 @@ static inline bool tcp_urg_mode(const struct tcp_sock *tp)
 #define OPTION_FAST_OPEN_COOKIE	(1 << 8)
 #define OPTION_SMC		(1 << 9)
 #define OPTION_TCP_REPEAT		(1 << 10)
-#define OPTION_TCP_REPEAT_ACK	(1 << 11)
 
 static void smc_options_write(__be32 *ptr, u16 *options)
 {
@@ -442,7 +441,6 @@ struct tcp_out_options {
 	__u8 *hash_location;	/* temporary pointer, overloaded */
 	__u32 tsval, tsecr;	/* need to include OPTION_TS */
 	u8 tcp_repeat;			/* 8 bits for tcp_repeat */
-	u8 tcp_repeat_ack;			/* 8 bits for tcp_repeat */
 	struct tcp_fastopen_cookie *fastopen_cookie;	/* Fast open cookie */
 };
 
@@ -562,15 +560,6 @@ static void tcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 			       (TCPOPT_NOP));
 	}
 
-	if (unlikely(OPTION_TCP_REPEAT_ACK & options)) {
-		*ptr++ = htonl((((unsigned char) 253) << 24) |
-			       (((unsigned char) 7) <<  16) |
-			       0x5BF3);
-		*ptr++ = htonl(((0x94CF) << 16) |
-			       (opts->tcp_repeat_ack  << 8) |
-			       (TCPOPT_NOP));
-	}
-
 	smc_options_write(ptr, &options);
 }
 
@@ -649,6 +638,7 @@ static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
 	//Zero out TCP Repeat Struct Client-Side
 	tp->repeat_out.last_ack = 1;
 	tp->repeat_in.last_ack = 1;
+	// memset(tp->repeat_store, 0, sizeof(struct tcp_repeat_ack_progress)*TCP_REPEAT_STORE_COUNT);
 
 	if (likely(sock_net(sk)->ipv4.sysctl_tcp_timestamps && !*md5)) {
 		opts->options |= OPTION_TS;
@@ -748,6 +738,7 @@ static unsigned int tcp_synack_options(const struct sock *sk,
 	smc_set_option_cond(tcp_sk(sk), ireq, opts, &remaining);
 
 	if (unlikely(ireq->repeat_ok)) {
+		printk("TCP_OUTPUT_REPEAT: set in synack\n");
 		opts->options |= OPTION_TCP_REPEAT;
 		opts->tcp_repeat = 0x07;	//000 001 11 (i, n, mode)
 		remaining -= 8;
@@ -799,18 +790,10 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 	}
 
 	if (unlikely(skb != NULL && TCP_SKB_CB(skb)->tcp_repeat_used)) {
+		printk("TCP_OUTPUT_REPEAT: outbound packet\n");
 		opts->options |= OPTION_TCP_REPEAT;
 		opts->tcp_repeat = ((TCP_SKB_CB(skb)->tcp_repeat_i) << 5) | 
 		                   ((TCP_SKB_CB(skb)->tcp_repeat_n) << 2);	// (i, n, mode)
-		size += 8;
-	}
-
-	if (unlikely(!(tp->repeat_in.last_ack))) {
-		if (tp->repeat_in.i == tp->repeat_in.n)
-			tp->repeat_in.last_ack = 1;
-		opts->options |= OPTION_TCP_REPEAT_ACK;
-		opts->tcp_repeat_ack = ((tp->repeat_in.i) << 5) | 
-		                   ((tp->repeat_in.n) << 2) | 0x3;	// (i, n, mode)
 		size += 8;
 	}
 
@@ -1100,28 +1083,51 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
 		// This packet is pretending to be at least twice as large as it truely is,
 		// so it is a reapeat packet (hopefully, or some else screwed up)
-		u8 repeat_i;
-		printk("TCP_REPEAT_transmit: seq: %u-%u, len: %u\n", 
+		char repeat_n = ((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len);
+		char repeat_i = 1;
+		struct tcp_repeat_ack_progress* packet_progress = tp->repeat_out;
+		unsigned int i = 0;
+		printk("TCP_REPEAT_transmit: %u, %u, %u\n", 
 			TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);
 
-		// Check if this is a new transmission
-		if (!(tp->repeat_out.seq_start == TCP_SKB_CB(skb)->seq)) {
-			// If the last repeat hasn't finished being acked, 
-			//  then we can't record info about this one
-			if (!(tp->repeat_out.last_ack))
-				return -ENOBUFS;
-			tp->repeat_out.seq_start = TCP_SKB_CB(skb)->seq;
-			tp->repeat_out.seq_end = TCP_SKB_CB(skb)->end_seq;
-			tp->repeat_out.n = (TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len;
-			tp->repeat_out.i = 0;
-			tp->repeat_out.last_ack = 0;
+		// Check if this is a retransmission
+		while (packet_progress && packet_progress->seq_start != TCP_SKB_CB(skb)->seq) {
+			packet_progress = packet_progress->next;
 		}
 
-		repeat_i = tp->repeat_out.i;
+		if (!packet_progress) {
+			// Find a place to store the ACK's received for this packet
+			while (!(tp->repeat_store[i].seq_start) && (i < TCP_REPEAT_STORE_COUNT)) {
+				++i;
+			}
+			if (i == TCP_REPEAT_STORE_COUNT)
+				return -ENOBUFS;
+
+			// Claim it as our own and add it to the list
+			packet_progress = &(repeat_store[i]);
+			packet_progress->seq_start = TCP_SKB_CB(skb)->seq;
+			packet_progress->next = NULL;
+			packet_progress->n = repeat_n & 0x7;
+			packet_progress->i = 0;
+			packet_progress->last_ack = 0;
+
+			if (tp->repeat_out) {
+				packet_progress = tp->repeat_out;
+				while (packet_progress->next) {
+					packet_progress = packet_progress->next;
+				}
+				packet_progress->next = &(repeat_store[i]);
+			} else {
+				tp->repeat_out = &(repeat_store[i]);
+			}
+			packet_progress = &(repeat_store[i]);
+		}
+		// Only transmit packets that haven't been acked
+		repeat_i = packet_progress->i + 1;
+		//TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + skb->len;
 		oskb = skb;
 		tcp_skb_tsorted_save(oskb) {
-			while (repeat_i < tp->repeat_out.n) {
-				++repeat_i;
+			while (repeat_i <= repeat_n) {
 				skb = skb_clone(oskb, gfp_mask);
 				if (unlikely(!skb)) {
 					err = -ENOBUFS;
@@ -1130,14 +1136,16 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 				tcb = TCP_SKB_CB(skb);
 				tcb->tcp_repeat_used = 1;
 				tcb->tcp_repeat_i = repeat_i;
-				tcb->tcp_repeat_n = tp->repeat_out.n;
+				tcb->tcp_repeat_n = repeat_n;
 				tcb->seq += (repeat_i - 1) * skb->len;
 				tcb->end_seq = tcb->seq + skb->len;
 				tcb->tx.in_flight = tcb->end_seq - tp->snd_una;
+				printk("TCP_REPEAT_transmit_recurse\n");
 				err = __tcp_transmit_skb(sk, skb, -1, gfp_mask, rcv_nxt);
 				if (err)
 					break;
 			}
+			++repeat_i;
 		} tcp_skb_tsorted_restore(oskb);
 		return err;
 	}

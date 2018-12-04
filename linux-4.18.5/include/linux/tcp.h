@@ -105,13 +105,13 @@ struct tcp_options_received {
 	u16	user_mss;	/* mss requested by user in ioctl	*/
 	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
 	u8 repeat_ok : 1, /* TCP_REPEAT seen on syn */
-		repeat_used : 1,
-		repeat_i_in : 3,
-		repeat_n_in : 3,
-		repeat_acked : 1,
-		repeat_i_acked : 3,
-		repeat_n_acked : 3,
-		pad : 1 ;
+		// repeat_used : 1,
+		// repeat_i_in : 3,
+		// repeat_n_in : 3,
+		// repeat_acked : 1,
+		// repeat_i_acked : 3,
+		// repeat_n_acked : 3,
+		pad : 7 ;
 };
 
 static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
@@ -119,8 +119,8 @@ static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
 	rx_opt->tstamp_ok = rx_opt->sack_ok = 0;
 	rx_opt->wscale_ok = rx_opt->snd_wscale = 0;
 	rx_opt->repeat_ok = 0;
-	rx_opt->repeat_used = 0;
-	rx_opt->repeat_acked = 0;
+	// rx_opt->repeat_used = 0;
+	// rx_opt->repeat_acked = 0;
 #if IS_ENABLED(CONFIG_SMC)
 	rx_opt->smc_ok = 0;
 #endif
@@ -157,12 +157,12 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 
 struct tcp_repeat_ack_progress{
 	u32 seq_start;
-	struct tcp_repeat_ack_progress* next;
-	u16 n : 7,
-		i: 7, 
+	u32 seq_end;
+	u8 n : 3,
+		i: 3, 
 		last_ack : 1,
 		pad : 1;
-}
+};
 
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
@@ -409,10 +409,10 @@ struct tcp_sock {
 	u32	*saved_syn;
 
 //TCP Repeat related information
-	struct tcp_repeat_ack_progress* repeat_out;
-	struct tcp_repeat_ack_progress* repeat_in;
+	struct tcp_repeat_ack_progress repeat_out;
+	struct tcp_repeat_ack_progress repeat_in;
 
-	struct tcp_repeat_ack_progress repeat_store [16];
+	// struct tcp_repeat_ack_progress repeat_store[TCP_REPEAT_STORE_COUNT];
 };
 
 enum tsq_enum {
