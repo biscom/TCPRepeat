@@ -4683,6 +4683,7 @@ static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb, int 
 	} else {
 		if (TCP_SKB_CB(skb)->tcp_repeat_used) {
 			__skb_queue_tail(&tcp_sk(sk)->sk_repeat_queue, skb);
+			skb_set_owner_r(skb, sk);
 			if (TCP_SKB_CB(skb)->tcp_repeat_i == TCP_SKB_CB(skb)->tcp_repeat_n) {
 				printk("TCP_REPEAT: queue done, moving\n");
 				skb_queue_splice_tail_init(&tcp_sk(sk)->sk_repeat_queue, &sk->sk_receive_queue);
