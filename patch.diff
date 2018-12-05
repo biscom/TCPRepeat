@@ -137,6 +137,26 @@ diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables
   };
   
   #define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))
+diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/Makefile linux-4.18.5-dev/Makefile
+*** linux-4.18.5-original/Makefile	2018-08-24 07:04:51.000000000 -0400
+--- linux-4.18.5-dev/Makefile	2018-11-15 16:40:48.890975000 -0500
+***************
+*** 2,8 ****
+  VERSION = 4
+  PATCHLEVEL = 18
+  SUBLEVEL = 5
+! EXTRAVERSION =
+  NAME = Merciless Moray
+  
+  # *DOCUMENTATION*
+--- 2,8 ----
+  VERSION = 4
+  PATCHLEVEL = 18
+  SUBLEVEL = 5
+! EXTRAVERSION = -less-is-more
+  NAME = Merciless Moray
+  
+  # *DOCUMENTATION*
 diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables.c linux-4.18.5-original/net/ipv4/tcp.c linux-4.18.5-dev/net/ipv4/tcp.c
 *** linux-4.18.5-original/net/ipv4/tcp.c	2018-08-24 07:04:51.000000000 -0400
 --- linux-4.18.5-dev/net/ipv4/tcp.c	2018-12-04 16:12:04.530756000 -0500
