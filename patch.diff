@@ -550,7 +550,7 @@ diff -rcNP -x 'signing_key.*' -x x509.genkey -x fixdep -x objtool -x inat-tables
 ! 	if (skb->len > 0 && 
 ! 		unlikely(((TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq) / skb->len) > 1)) {
 ! 		// This packet is pretending to be at least twice as large as it truely is,
-! 		// so it is a reapeat packet (hopefully, or some else screwed up)
+! 		// so it is a repeat packet (hopefully, or some else screwed up)
 ! 		u8 repeat_i;
 ! 		printk("TCP_REPEAT_transmit: seq: %u-%u, len: %u\n", 
 ! 			TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq, skb->len);

@@ -1,0 +1,13 @@
+Michael Biscotti
+Jasper Boland
+Project 1: README
+
+Division of Labor:
+
+    Our team used a paired programming approach to completing this assignment. We started by working through what would need to be implemented on paper (diagrams are included in the attached diagrams folder) and then worked on writing code simulataneously on one machine to ensure the avoidance of any merge conflicts across the kernel. We spent a significant amount of time talking about proper placement for a number of our structure initializations and collectively spent about 20 hours writing code. 
+
+    Jasper spent a few additional hours fixing our implementation of retransmissions, which Michael spent a few additional hours on the report. Overall, the workload was primarily tackled together and was well-balanced among group members.
+
+Notes to Grader:
+
+    Our testing was not as extensive as we would have liked, as Michael's virtual machine began to stall on opening gdm sessions on boot after needing to resize his virtual disk after running out of space. After trying to debug this to no avail, he installed a new vm to finish the project, but did not have enough time to build the kernel from scratch before the submission deadline. As a result, the kernel was only able to be tested on one machine, through a Wireshark packet capture of the localhost upon running a test script we wrote, rather than across two machines as we originally intended.
